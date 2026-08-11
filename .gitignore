@@ -1,0 +1,26 @@
+# Virtual environment
+.venv/
+venv/
+
+# Docling downloaded model artifacts (regenerable, multi-GB)
+.docling-models/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Caches
+.pytest_cache/
+.pip-cache/
+pytest-cache-files-*/
+.tmp/
+
+# Env / secrets
+.env
+*.local
+
+# OS
+.DS_Store
+Thumbs.db

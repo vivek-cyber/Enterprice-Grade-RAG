@@ -1,0 +1,26 @@
+# Streamlit provides the local UI/dashboard layer for running ingestion workflows.
+streamlit
+
+# LangGraph will orchestrate future retrieval and agent workflows.
+langgraph
+
+# Logfire provides observability, traces, and instrumentation for production debugging.
+logfire
+
+# Docling provides local document conversion for PDFs and office formats with layout-aware structure.
+docling
+
+# pypdf extracts text and page metadata from PDF files during ingestion.
+pypdf
+
+# Beautiful Soup gives us more robust HTML parsing as the HTML parser matures.
+beautifulsoup4
+
+# python-docx supports richer DOCX parsing beyond the current XML fallback.
+python-docx
+
+# python-pptx supports richer PowerPoint parsing beyond the current XML fallback.
+python-pptx
+
+# pytest provides a concise test runner for the ingestion test suite.
+pytest
