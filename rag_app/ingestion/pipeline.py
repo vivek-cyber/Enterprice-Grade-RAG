@@ -7,6 +7,7 @@ from time import perf_counter
 
 from rag_app.ingestion.chunking import chunk_document
 from rag_app.ingestion.cleaners import clean_text
+from rag_app.ingestion.embeddings.base import EmbeddingProvider
 from rag_app.ingestion.file_discovery import discover_files
 from rag_app.ingestion.models import IngestionReport
 from rag_app.ingestion.parser import build_parser_registry
@@ -20,6 +21,7 @@ def ingest_folder(
     parsers: tuple[BaseParser, ...] | None = None,
     chunk_size: int = 1200,
     chunk_overlap: int = 150,
+    embedding_provider: EmbeddingProvider | None = None,
 ) -> IngestionReport:
     """Discover, parse, clean, and chunk supported files in a folder."""
 
@@ -65,5 +67,12 @@ def ingest_folder(
         report.documents.append(result.document)
         report.chunks.extend(document_chunks)
         report.parsed_files += 1
+
+    if embedding_provider is not None and report.chunks:
+        chunk_texts = [chunk.text for chunk in report.chunks]
+        embedding_records = embedding_provider.embed_texts(chunk_texts)
+        for chunk, record in zip(report.chunks, embedding_records, strict=True):
+            record.chunk_id = chunk.id
+        report.embeddings = embedding_records
 
     return report

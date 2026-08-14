@@ -1,7 +1,8 @@
 """Embedding contracts.
 
-This phase intentionally defines interfaces only. Provider implementations and
-model calls belong to the retrieval/vector-indexing phase.
+Concrete providers (e.g. gemini_provider.GeminiEmbeddingProvider) live
+alongside this module. Vector-store/indexing/retrieval integration is a
+later phase.
 """
 
 from __future__ import annotations

@@ -210,6 +210,39 @@ class IngestionTests(unittest.TestCase):
 
         self.assertEqual("chunk-1", record.chunk_id)
 
+    def test_ingest_folder_without_embedding_provider_leaves_embeddings_empty(self) -> None:
+        report = ingest_folder(TRUE_DATA)
+
+        self.assertEqual([], report.embeddings)
+
+    def test_ingest_folder_populates_embeddings_when_provider_supplied(self) -> None:
+        class FakeEmbeddingProvider:
+            provider_name = "fake"
+            model_name = "fake-model"
+
+            def embed_texts(self, texts: list[str]) -> list[EmbeddingRecord]:
+                return [
+                    EmbeddingRecord(chunk_id=str(index), vector=[float(index)], model=self.model_name)
+                    for index in range(len(texts))
+                ]
+
+        report = ingest_folder(TRUE_DATA, embedding_provider=FakeEmbeddingProvider())
+
+        self.assertEqual(len(report.chunks), len(report.embeddings))
+        for chunk, record in zip(report.chunks, report.embeddings, strict=True):
+            self.assertEqual(chunk.id, record.chunk_id)
+
+    def test_ingest_folder_raises_on_embedding_count_mismatch(self) -> None:
+        class ShortEmbeddingProvider:
+            provider_name = "short"
+            model_name = "short-model"
+
+            def embed_texts(self, texts: list[str]) -> list[EmbeddingRecord]:
+                return [EmbeddingRecord(chunk_id="0", vector=[0.0], model=self.model_name)]
+
+        with self.assertRaises(ValueError):
+            ingest_folder(TRUE_DATA, embedding_provider=ShortEmbeddingProvider())
+
 
 if __name__ == "__main__":
     unittest.main()

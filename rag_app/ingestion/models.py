@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from rag_app.ingestion.embeddings.base import EmbeddingRecord
 
 Metadata = dict[str, Any]
 
@@ -70,6 +71,7 @@ class IngestionReport:
     failed_files: dict[Path, list[str]] = field(default_factory=dict)
     documents: list[Document] = field(default_factory=list)
     chunks: list[DocumentChunk] = field(default_factory=list)
+    embeddings: list[EmbeddingRecord] = field(default_factory=list)
     warnings: dict[Path, list[str]] = field(default_factory=dict)
     parser_timings_ms: dict[Path, float] = field(default_factory=dict)
 

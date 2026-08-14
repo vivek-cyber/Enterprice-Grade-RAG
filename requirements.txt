@@ -24,3 +24,6 @@ python-pptx
 
 # pytest provides a concise test runner for the ingestion test suite.
 pytest
+
+# google-genai is the Gemini Developer API SDK used to generate chunk embeddings.
+google-genai
