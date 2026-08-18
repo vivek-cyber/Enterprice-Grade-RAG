@@ -1,17 +1,22 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
 from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import patch
 
+from rag_app.ingestion.checkpoint import CheckpointEntry, ChunkCheckpointStore
 from rag_app.ingestion.chunking import chunk_document
 from rag_app.ingestion.cleaners import clean_text
 from rag_app.ingestion.embeddings import EmbeddingRecord
 from rag_app.ingestion.file_discovery import discover_files
-from rag_app.ingestion.models import Document
+from rag_app.ingestion.models import Document, DocumentChunk, FileRecord
 from rag_app.ingestion.parser import build_parser_registry
-from rag_app.ingestion.parser.docling_utils import convert_with_docling
+from rag_app.ingestion.parser.docling_utils import (
+    DoclingConversionError,
+    convert_with_docling,
+)
 from rag_app.ingestion.parser.html_parser import HtmlParser
 from rag_app.ingestion.parser.pdf_parser import PdfParser
 from rag_app.ingestion.pipeline import ingest_folder
@@ -78,16 +83,19 @@ class IngestionTests(unittest.TestCase):
         self.assertTrue(result.document.content.strip())
         self.assertIn("Docling failed", result.warnings)
 
-    def test_docling_pdf_options_include_picture_descriptions(self) -> None:
+    def test_docling_pdf_options_disable_picture_models(self) -> None:
+        # Picture classification/description exhausted memory partway through
+        # most PDFs and cost whole pages of text, so they stay off; table
+        # structure is the structural feature worth paying for.
         captured_options = {}
 
         class FakePdfPipelineOptions:
             def __init__(self) -> None:
                 self.do_ocr = True
                 self.do_table_structure = False
-                self.do_picture_classification = False
-                self.do_picture_description = False
-                self.generate_picture_images = False
+                self.do_picture_classification = True
+                self.do_picture_description = True
+                self.generate_picture_images = True
                 self.generate_page_images = True
 
         class FakePdfFormatOption:
@@ -137,11 +145,153 @@ class IngestionTests(unittest.TestCase):
         self.assertEqual("docling", metadata["parser_engine"])
         self.assertFalse(options.do_ocr)
         self.assertTrue(options.do_table_structure)
-        self.assertTrue(options.do_picture_classification)
-        self.assertTrue(options.do_picture_description)
-        self.assertTrue(options.generate_picture_images)
+        self.assertFalse(options.do_picture_classification)
+        self.assertFalse(options.do_picture_description)
+        self.assertFalse(options.generate_picture_images)
         self.assertFalse(options.generate_page_images)
         self.assertEqual(ROOT / ".docling-models", options.artifacts_path)
+
+    def test_docling_partial_success_is_rejected(self) -> None:
+        # Docling flags failed pages and still returns a document containing
+        # only the survivors. Accepting that silently indexes a truncated file,
+        # so a partial conversion must fail loudly enough to trigger fallback.
+        class FakeDocument:
+            pages = [1]
+            tables: list = []
+            pictures: list = []
+
+            def export_to_markdown(self) -> str:
+                return "# only the first page survived"
+
+        class FakeDocumentConverter:
+            def __init__(self, format_options=None) -> None:
+                pass
+
+            def convert(self, path: str):
+                return SimpleNamespace(
+                    document=FakeDocument(),
+                    input=path,
+                    status=SimpleNamespace(name="PARTIAL_SUCCESS"),
+                    errors=[SimpleNamespace(page_no=page) for page in (6, 7, 8)],
+                )
+
+        def fake_import_module(name: str):
+            if name == "docling.document_converter":
+                return SimpleNamespace(
+                    DocumentConverter=FakeDocumentConverter,
+                    PdfFormatOption=lambda pipeline_options: None,
+                )
+            if name == "docling.datamodel.base_models":
+                return SimpleNamespace(InputFormat=SimpleNamespace(PDF="pdf"))
+            if name == "docling.datamodel.pipeline_options":
+                return SimpleNamespace(PdfPipelineOptions=SimpleNamespace)
+            raise ModuleNotFoundError(name)
+
+        with patch(
+            "rag_app.ingestion.parser.docling_utils.import_module", fake_import_module
+        ):
+            with self.assertRaises(DoclingConversionError) as caught:
+                convert_with_docling(TRUE_DATA / "sample.pdf")
+
+        message = str(caught.exception)
+        self.assertIn("PARTIAL_SUCCESS", message)
+        self.assertIn("3 page(s) failed", message)
+
+
+class CheckpointTests(unittest.TestCase):
+    def _record(self, sha256: str = "abc123", path: str = "doc.pdf") -> FileRecord:
+        return FileRecord(
+            path=Path(path),
+            extension=".pdf",
+            sha256=sha256,
+            size_bytes=10,
+            supported=True,
+        )
+
+    def _entry(self) -> CheckpointEntry:
+        document = Document(
+            id="doc-1",
+            source_path=Path("doc.pdf"),
+            source_type="pdf",
+            title="Doc",
+            content="hello world",
+            metadata={"pages_count": 2},
+        )
+        chunk = DocumentChunk(
+            id="doc-1-0",
+            document_id="doc-1",
+            text="hello world",
+            chunk_index=0,
+            metadata={"source": "doc.pdf"},
+        )
+        return CheckpointEntry(document=document, chunks=[chunk], warnings=["degraded"])
+
+    def test_checkpoint_round_trips_document_and_chunks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ChunkCheckpointStore(Path(tmp))
+            key = store.key(self._record(), chunk_size=1200, chunk_overlap=150)
+            store.save(key, self._entry())
+
+            loaded = store.load(key)
+
+        self.assertIsNotNone(loaded)
+        assert loaded is not None
+        self.assertEqual("doc-1", loaded.document.id)
+        self.assertEqual(Path("doc.pdf"), loaded.document.source_path)
+        self.assertEqual({"pages_count": 2}, loaded.document.metadata)
+        self.assertEqual(["degraded"], loaded.warnings)
+        self.assertEqual(1, len(loaded.chunks))
+        self.assertEqual("hello world", loaded.chunks[0].text)
+
+    def test_checkpoint_key_changes_with_content_and_chunk_params(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ChunkCheckpointStore(Path(tmp))
+            baseline = store.key(self._record(), chunk_size=1200, chunk_overlap=150)
+
+            self.assertNotEqual(
+                baseline,
+                store.key(self._record("different"), chunk_size=1200, chunk_overlap=150),
+            )
+            self.assertNotEqual(
+                baseline, store.key(self._record(), chunk_size=800, chunk_overlap=150)
+            )
+            self.assertNotEqual(
+                baseline, store.key(self._record(), chunk_size=1200, chunk_overlap=0)
+            )
+            # Byte-identical files at different paths must not share an entry:
+            # document and chunk ids are path-derived, so a shared entry makes
+            # the second file inherit the first one's ids and collapse on upsert.
+            self.assertNotEqual(
+                baseline,
+                store.key(
+                    self._record(path="other.pdf"), chunk_size=1200, chunk_overlap=150
+                ),
+            )
+
+    def test_missing_and_corrupt_entries_are_cache_misses(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ChunkCheckpointStore(Path(tmp))
+            key = store.key(self._record(), chunk_size=1200, chunk_overlap=150)
+            self.assertIsNone(store.load(key))
+
+            store.path_for(key).write_text("{ not json", encoding="utf-8")
+            self.assertIsNone(store.load(key))
+
+    def test_ingest_folder_replays_files_from_checkpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ChunkCheckpointStore(Path(tmp))
+
+            first = ingest_folder(TRUE_DATA, checkpoint_store=store)
+            self.assertEqual(0, first.cached_files)
+            self.assertGreater(first.parsed_files, 0)
+
+            second = ingest_folder(TRUE_DATA, checkpoint_store=store)
+
+        self.assertEqual(first.parsed_files, second.cached_files)
+        self.assertEqual(len(first.chunks), len(second.chunks))
+        self.assertEqual(
+            [chunk.id for chunk in first.chunks], [chunk.id for chunk in second.chunks]
+        )
 
     def test_pdf_parser_falls_back_when_docling_fails(self) -> None:
         parser = PdfParser()

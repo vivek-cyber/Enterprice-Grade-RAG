@@ -9,6 +9,7 @@ from time import perf_counter
 
 import logfire
 
+from rag_app.ingestion.checkpoint import CheckpointEntry, ChunkCheckpointStore
 from rag_app.ingestion.chunking import chunk_document
 from rag_app.ingestion.cleaners import clean_text
 from rag_app.ingestion.embeddings.base import EmbeddingProvider
@@ -28,8 +29,14 @@ def ingest_folder(
     chunk_overlap: int = 150,
     embedding_provider: EmbeddingProvider | None = None,
     vector_store: VectorStore | None = None,
+    checkpoint_store: ChunkCheckpointStore | None = None,
 ) -> IngestionReport:
-    """Discover, parse, clean, and chunk supported files in a folder."""
+    """Discover, parse, clean, and chunk supported files in a folder.
+
+    When a checkpoint_store is supplied, each file's chunks are persisted as
+    soon as that file is chunked and replayed from cache on later runs, so an
+    interrupted run does not have to reparse work it already finished.
+    """
 
     if vector_store is not None and embedding_provider is None:
         raise ValueError("vector_store requires an embedding_provider")
@@ -63,6 +70,35 @@ def ingest_folder(
                 continue
 
             file_index += 1
+
+            cache_key = (
+                checkpoint_store.key(
+                    record, chunk_size=chunk_size, chunk_overlap=chunk_overlap
+                )
+                if checkpoint_store is not None
+                else None
+            )
+            if checkpoint_store is not None and cache_key is not None:
+                cached = checkpoint_store.load(cache_key)
+                if cached is not None:
+                    report.documents.append(cached.document)
+                    report.chunks.extend(cached.chunks)
+                    chunks_per_document.append(len(cached.chunks))
+                    report.parsed_files += 1
+                    report.cached_files += 1
+                    if cached.warnings:
+                        report.warnings[record.path] = cached.warnings
+                    logfire.info(
+                        "cached {file_index}/{supported_total}: {filename} "
+                        "({chunks} chunks, {files_left} left)",
+                        file_index=file_index,
+                        supported_total=supported_total,
+                        filename=record.path.name,
+                        chunks=len(cached.chunks),
+                        files_left=supported_total - file_index,
+                    )
+                    continue
+
             parser = registry[record.extension]
             started = perf_counter()
             with logfire.span(
@@ -110,12 +146,35 @@ def ingest_folder(
                 report.parsed_files += 1
                 file_span.set_attribute("chunks_produced", len(document_chunks))
 
+                if checkpoint_store is not None and cache_key is not None:
+                    # Persist as soon as this file is chunked: a later crash or
+                    # kill then costs only the file in flight, not the run.
+                    try:
+                        checkpoint_store.save(
+                            cache_key,
+                            CheckpointEntry(
+                                document=result.document,
+                                chunks=document_chunks,
+                                warnings=result.warnings,
+                            ),
+                        )
+                    except OSError as exc:
+                        # Checkpointing is an optimization; never fail the run
+                        # over a cache write.
+                        logfire.warn(
+                            "checkpoint write failed for {file}: {error}",
+                            file=str(record.path),
+                            error=str(exc),
+                        )
+
         logfire.info(
             "parsed source folder",
             total_files=report.total_files,
             parsed_files=report.parsed_files,
+            cached_files=report.cached_files,
             skipped_files=report.skipped_count,
             failed_files=report.failed_count,
+            degraded_files=len(report.warnings),
             chunks_produced=len(report.chunks),
         )
 

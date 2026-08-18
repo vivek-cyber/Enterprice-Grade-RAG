@@ -67,6 +67,9 @@ class IngestionReport:
     source_dir: Path
     total_files: int = 0
     parsed_files: int = 0
+    # Subset of parsed_files that was replayed from the chunk checkpoint cache
+    # rather than reparsed.
+    cached_files: int = 0
     skipped_files: list[FileRecord] = field(default_factory=list)
     failed_files: dict[Path, list[str]] = field(default_factory=dict)
     documents: list[Document] = field(default_factory=list)

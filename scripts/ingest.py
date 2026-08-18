@@ -17,9 +17,21 @@ from pathlib import Path
 import logfire
 from dotenv import load_dotenv
 
-from rag_app.ingestion.embeddings.nomic_provider import NomicEmbeddingProvider
-from rag_app.ingestion.pipeline import ingest_folder
-from rag_app.vectorstore.qdrant_store import QdrantVectorStore
+# Running this file directly puts scripts/ on sys.path, not the project root, so
+# `rag_app` would not resolve. The package is not pip-installable yet (no
+# pyproject.toml), so add the repo root explicitly instead of relying on the
+# caller to export PYTHONPATH.
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from rag_app.ingestion.checkpoint import (  # noqa: E402
+    DEFAULT_CHECKPOINT_DIRNAME,
+    ChunkCheckpointStore,
+)
+from rag_app.ingestion.embeddings.nomic_provider import NomicEmbeddingProvider  # noqa: E402
+from rag_app.ingestion.pipeline import ingest_folder  # noqa: E402
+from rag_app.vectorstore.qdrant_store import QdrantVectorStore  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
@@ -32,6 +44,20 @@ def parse_args() -> argparse.Namespace:
         "--dry-run",
         action="store_true",
         help="Parse and chunk only; skip embedding generation and vector store writes.",
+    )
+    parser.add_argument(
+        "--checkpoint-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Directory for per-file parse/chunk checkpoints "
+            f"(default: {DEFAULT_CHECKPOINT_DIRNAME} in the project root)."
+        ),
+    )
+    parser.add_argument(
+        "--no-checkpoint",
+        action="store_true",
+        help="Disable checkpointing; reparse every file even if cached.",
     )
     return parser.parse_args()
 
@@ -51,20 +77,27 @@ def main() -> int:
         embedding_provider = NomicEmbeddingProvider()
         vector_store = QdrantVectorStore(collection_name=args.collection)
 
+    checkpoint_store = None
+    if not args.no_checkpoint:
+        checkpoint_dir = args.checkpoint_dir or PROJECT_ROOT / DEFAULT_CHECKPOINT_DIRNAME
+        checkpoint_store = ChunkCheckpointStore(checkpoint_dir)
+
     report = ingest_folder(
         args.source_dir,
         chunk_size=args.chunk_size,
         chunk_overlap=args.chunk_overlap,
         embedding_provider=embedding_provider,
         vector_store=vector_store,
+        checkpoint_store=checkpoint_store,
     )
 
     total_chunk_chars = sum(len(chunk.text) for chunk in report.chunks)
     print(f"Source dir:      {report.source_dir}")
     print(f"Total files:     {report.total_files}")
-    print(f"Parsed files:    {report.parsed_files}")
+    print(f"Parsed files:    {report.parsed_files} ({report.cached_files} from checkpoint)")
     print(f"Skipped files:   {report.skipped_count}")
     print(f"Failed files:    {report.failed_count}")
+    print(f"Degraded files:  {len(report.warnings)}")
     print(f"Chunks produced: {len(report.chunks)}")
     print(f"Chunk text size: {total_chunk_chars / 1_000_000:.2f} MB")
     if report.embeddings:
@@ -76,6 +109,16 @@ def main() -> int:
         print("\nFailed files:")
         for path, errors in report.failed_files.items():
             print(f"  {path}: {errors}")
+
+    if report.warnings:
+        # Degraded parses still produce chunks, so they never show up as
+        # failures -- surface them explicitly or a silently truncated document
+        # sails into the index looking healthy.
+        print("\nDegraded files (parsed with warnings):")
+        for path, warnings in report.warnings.items():
+            head = "; ".join(warnings[:2])
+            extra = f" (+{len(warnings) - 2} more)" if len(warnings) > 2 else ""
+            print(f"  {path.name}: {head}{extra}")
 
     return 0
 
