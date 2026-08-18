@@ -27,3 +27,6 @@ pytest
 
 # google-genai is the Gemini Developer API SDK used to generate chunk embeddings.
 google-genai
+
+# qdrant-client talks to Qdrant (Cloud or self-hosted) for vector storage and search.
+qdrant-client

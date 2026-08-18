@@ -243,6 +243,70 @@ class IngestionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ingest_folder(TRUE_DATA, embedding_provider=ShortEmbeddingProvider())
 
+    def test_ingest_folder_raises_when_vector_store_given_without_embedding_provider(
+        self,
+    ) -> None:
+        class FakeVectorStore:
+            store_name = "fake"
+
+            def ensure_collection(self, vector_size: int) -> None:
+                raise AssertionError("should not be called")
+
+            def upsert(self, points) -> None:
+                raise AssertionError("should not be called")
+
+            def search(self, vector, *, limit: int = 10):
+                raise AssertionError("should not be called")
+
+            def delete(self, chunk_ids) -> None:
+                raise AssertionError("should not be called")
+
+        with self.assertRaises(ValueError):
+            ingest_folder(TRUE_DATA, vector_store=FakeVectorStore())
+
+    def test_ingest_folder_upserts_into_vector_store_when_supplied(self) -> None:
+        class FakeEmbeddingProvider:
+            provider_name = "fake"
+            model_name = "fake-model"
+
+            def embed_texts(self, texts: list[str]) -> list[EmbeddingRecord]:
+                return [
+                    EmbeddingRecord(chunk_id=str(index), vector=[float(index)], model=self.model_name)
+                    for index in range(len(texts))
+                ]
+
+        class FakeVectorStore:
+            store_name = "fake"
+
+            def __init__(self) -> None:
+                self.ensured_vector_size: int | None = None
+                self.upserted_points = []
+
+            def ensure_collection(self, vector_size: int) -> None:
+                self.ensured_vector_size = vector_size
+
+            def upsert(self, points) -> None:
+                self.upserted_points.extend(points)
+
+            def search(self, vector, *, limit: int = 10):
+                raise AssertionError("not exercised in this test")
+
+            def delete(self, chunk_ids) -> None:
+                raise AssertionError("not exercised in this test")
+
+        vector_store = FakeVectorStore()
+        report = ingest_folder(
+            TRUE_DATA,
+            embedding_provider=FakeEmbeddingProvider(),
+            vector_store=vector_store,
+        )
+
+        self.assertEqual(1, vector_store.ensured_vector_size)
+        self.assertEqual(len(report.chunks), len(vector_store.upserted_points))
+        for chunk, point in zip(report.chunks, vector_store.upserted_points, strict=True):
+            self.assertEqual(chunk.id, point.chunk_id)
+            self.assertEqual(chunk.text, point.text)
+
 
 if __name__ == "__main__":
     unittest.main()

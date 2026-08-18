@@ -12,6 +12,7 @@ from rag_app.ingestion.file_discovery import discover_files
 from rag_app.ingestion.models import IngestionReport
 from rag_app.ingestion.parser import build_parser_registry
 from rag_app.ingestion.parser.base import BaseParser
+from rag_app.vectorstore.base import VectorPoint, VectorStore
 
 
 def ingest_folder(
@@ -22,8 +23,12 @@ def ingest_folder(
     chunk_size: int = 1200,
     chunk_overlap: int = 150,
     embedding_provider: EmbeddingProvider | None = None,
+    vector_store: VectorStore | None = None,
 ) -> IngestionReport:
     """Discover, parse, clean, and chunk supported files in a folder."""
+
+    if vector_store is not None and embedding_provider is None:
+        raise ValueError("vector_store requires an embedding_provider")
 
     registry = build_parser_registry(parsers)
     supported_extensions = set(registry)
@@ -74,5 +79,18 @@ def ingest_folder(
         for chunk, record in zip(report.chunks, embedding_records, strict=True):
             record.chunk_id = chunk.id
         report.embeddings = embedding_records
+
+        if vector_store is not None:
+            vector_store.ensure_collection(len(embedding_records[0].vector))
+            points = [
+                VectorPoint(
+                    chunk_id=chunk.id,
+                    vector=record.vector,
+                    text=chunk.text,
+                    metadata=chunk.metadata,
+                )
+                for chunk, record in zip(report.chunks, embedding_records, strict=True)
+            ]
+            vector_store.upsert(points)
 
     return report
