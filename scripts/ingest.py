@@ -6,11 +6,13 @@ access is required for the embedding step.
 Usage:
     python scripts/ingest.py DATA/true_data --collection rag_documents
     python scripts/ingest.py DATA --dry-run   # parse+chunk only, no embedding/upsert
+    python scripts/ingest.py DATA --auto-resume  # restart on crash until fully ingested
 """
 
 from __future__ import annotations
 
 import argparse
+import subprocess
 import sys
 from pathlib import Path
 
@@ -59,7 +61,92 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Disable checkpointing; reparse every file even if cached.",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--auto-resume",
+        action="store_true",
+        help=(
+            "Restart ingestion in a fresh process whenever it crashes, until "
+            "every file is parsed. Docling's PDF backend leaks memory across "
+            "files within one process and eventually dies on a large corpus; "
+            "each fresh process starts clean, and finished files are skipped "
+            "via the checkpoint cache. Requires checkpointing to be enabled."
+        ),
+    )
+    parser.add_argument(
+        "--max-resume-attempts",
+        type=int,
+        default=20,
+        help="With --auto-resume, give up after this many restarts (default: 20).",
+    )
+    args = parser.parse_args()
+
+    if args.auto_resume and args.no_checkpoint:
+        parser.error("--auto-resume requires checkpointing; drop --no-checkpoint.")
+
+    return args
+
+
+def run_auto_resume(args: argparse.Namespace) -> int:
+    """Rerun this script in a fresh subprocess each time it crashes.
+
+    Docling's memory leak accumulates within one process, not across
+    processes, so a crashed attempt is not wasted: every file it finished
+    before dying is already durable in the checkpoint cache (see
+    ChunkCheckpointStore), and the next attempt skips straight past those
+    files. Progress is measured by counting checkpoint entries rather than
+    parsing subprocess output, so it stays correct even if log formatting
+    changes later.
+    """
+
+    checkpoint_dir = args.checkpoint_dir or PROJECT_ROOT / DEFAULT_CHECKPOINT_DIRNAME
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+    child_argv = [
+        sys.executable,
+        str(Path(__file__).resolve()),
+        str(args.source_dir),
+        "--collection", args.collection,
+        "--chunk-size", str(args.chunk_size),
+        "--chunk-overlap", str(args.chunk_overlap),
+        "--checkpoint-dir", str(checkpoint_dir),
+    ]
+    if args.dry_run:
+        child_argv.append("--dry-run")
+
+    def cached_file_count() -> int:
+        return sum(1 for _ in checkpoint_dir.glob("*.json"))
+
+    for attempt in range(1, args.max_resume_attempts + 1):
+        before = cached_file_count()
+        print(f"\n=== auto-resume: attempt {attempt}/{args.max_resume_attempts} "
+              f"({before} file(s) already cached) ===")
+
+        # Inherits this process's stdio so the child's own Logfire/print output
+        # streams live, exactly as if it had been run directly.
+        result = subprocess.run(child_argv)
+
+        if result.returncode == 0:
+            print(f"\n=== auto-resume: completed on attempt {attempt} ===")
+            return 0
+
+        after = cached_file_count()
+        print(
+            f"=== auto-resume: attempt {attempt} exited with code "
+            f"{result.returncode} ({before} -> {after} files cached) ==="
+        )
+        if after <= before:
+            print(
+                "=== auto-resume: no new files were cached on this attempt; "
+                "stopping instead of retrying forever ===",
+                file=sys.stderr,
+            )
+            return 1
+
+    print(
+        f"=== auto-resume: gave up after {args.max_resume_attempts} attempts ===",
+        file=sys.stderr,
+    )
+    return 1
 
 
 def main() -> int:
@@ -70,6 +157,9 @@ def main() -> int:
     if not args.source_dir.exists():
         print(f"Source directory does not exist: {args.source_dir}", file=sys.stderr)
         return 1
+
+    if args.auto_resume:
+        return run_auto_resume(args)
 
     embedding_provider = None
     vector_store = None
