@@ -8,6 +8,7 @@ from google.genai import errors as genai_errors
 
 from rag_app.ingestion.embeddings.gemini_provider import (
     DEFAULT_MODEL_NAME,
+    DEFAULT_OUTPUT_DIMENSIONALITY,
     DEFAULT_TASK_TYPE,
     GeminiEmbeddingAPIError,
     GeminiEmbeddingConfigError,
@@ -61,6 +62,7 @@ class GeminiEmbeddingProviderTests(unittest.TestCase):
 
         self.assertEqual(DEFAULT_MODEL_NAME, provider.model_name)
         self.assertEqual(DEFAULT_TASK_TYPE, provider.task_type)
+        self.assertEqual(DEFAULT_OUTPUT_DIMENSIONALITY, provider.output_dimensionality)
 
     def test_embed_texts_batches_requests_by_batch_size(self) -> None:
         calls: list[list[str]] = []

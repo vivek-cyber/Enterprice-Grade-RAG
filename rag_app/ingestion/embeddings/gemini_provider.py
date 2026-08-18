@@ -15,6 +15,7 @@ from rag_app.ingestion.embeddings.base import EmbeddingRecord
 
 DEFAULT_MODEL_NAME = "gemini-embedding-2-preview"
 DEFAULT_TASK_TYPE = "RETRIEVAL_DOCUMENT"
+DEFAULT_OUTPUT_DIMENSIONALITY = 768
 DEFAULT_BATCH_SIZE = 100
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_INITIAL_BACKOFF_SECONDS = 1.0
@@ -33,7 +34,7 @@ class GeminiEmbeddingAPIError(RuntimeError):
 class GeminiEmbeddingProvider:
     model_name: str = DEFAULT_MODEL_NAME
     task_type: str = DEFAULT_TASK_TYPE
-    output_dimensionality: int | None = None
+    output_dimensionality: int | None = DEFAULT_OUTPUT_DIMENSIONALITY
     batch_size: int = DEFAULT_BATCH_SIZE
     max_retries: int = DEFAULT_MAX_RETRIES
     initial_backoff_seconds: float = DEFAULT_INITIAL_BACKOFF_SECONDS
