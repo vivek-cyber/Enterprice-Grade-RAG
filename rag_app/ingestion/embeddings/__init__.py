@@ -5,12 +5,12 @@ from rag_app.ingestion.embeddings.fallback_provider import (
     FallbackEmbeddingError,
     FallbackEmbeddingProvider,
 )
-from rag_app.ingestion.embeddings.gemini_provider import GeminiEmbeddingProvider
+from rag_app.ingestion.embeddings.nomic_provider import NomicEmbeddingProvider
 
 __all__ = [
     "EmbeddingProvider",
     "EmbeddingRecord",
     "FallbackEmbeddingError",
     "FallbackEmbeddingProvider",
-    "GeminiEmbeddingProvider",
+    "NomicEmbeddingProvider",
 ]

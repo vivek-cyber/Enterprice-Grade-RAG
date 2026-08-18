@@ -83,6 +83,19 @@ class QdrantVectorStoreTests(unittest.TestCase):
             sent_point.payload,
         )
 
+    def test_upsert_splits_points_into_multiple_batches(self) -> None:
+        store, fake_client = _make_store(upsert_batch_size=2)
+        points = [
+            VectorPoint(chunk_id=str(i), vector=[float(i)], text=str(i), metadata={})
+            for i in range(5)
+        ]
+
+        store.upsert(points)
+
+        self.assertEqual(3, fake_client.upsert.call_count)
+        batch_sizes = [len(call.kwargs["points"]) for call in fake_client.upsert.call_args_list]
+        self.assertEqual([2, 2, 1], batch_sizes)
+
     def test_upsert_with_no_points_does_not_call_client(self) -> None:
         store, fake_client = _make_store()
 

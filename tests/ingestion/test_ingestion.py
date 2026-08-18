@@ -220,7 +220,11 @@ class IngestionTests(unittest.TestCase):
             provider_name = "fake"
             model_name = "fake-model"
 
-            def embed_texts(self, texts: list[str]) -> list[EmbeddingRecord]:
+            def embed_texts(
+                self, texts: list[str], *, progress_callback=None
+            ) -> list[EmbeddingRecord]:
+                if progress_callback is not None:
+                    progress_callback(len(texts), len(texts))
                 return [
                     EmbeddingRecord(chunk_id=str(index), vector=[float(index)], model=self.model_name)
                     for index in range(len(texts))
@@ -237,7 +241,9 @@ class IngestionTests(unittest.TestCase):
             provider_name = "short"
             model_name = "short-model"
 
-            def embed_texts(self, texts: list[str]) -> list[EmbeddingRecord]:
+            def embed_texts(
+                self, texts: list[str], *, progress_callback=None
+            ) -> list[EmbeddingRecord]:
                 return [EmbeddingRecord(chunk_id="0", vector=[0.0], model=self.model_name)]
 
         with self.assertRaises(ValueError):
@@ -269,7 +275,11 @@ class IngestionTests(unittest.TestCase):
             provider_name = "fake"
             model_name = "fake-model"
 
-            def embed_texts(self, texts: list[str]) -> list[EmbeddingRecord]:
+            def embed_texts(
+                self, texts: list[str], *, progress_callback=None
+            ) -> list[EmbeddingRecord]:
+                if progress_callback is not None:
+                    progress_callback(len(texts), len(texts))
                 return [
                     EmbeddingRecord(chunk_id=str(index), vector=[float(index)], model=self.model_name)
                     for index in range(len(texts))

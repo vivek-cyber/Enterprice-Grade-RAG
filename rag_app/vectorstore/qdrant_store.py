@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import math
 import os
 import uuid
 from dataclasses import dataclass, field
 
+import logfire
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qdrant_models
 
@@ -13,6 +15,7 @@ from rag_app.vectorstore.base import VectorMatch, VectorPoint
 
 DEFAULT_DISTANCE = qdrant_models.Distance.COSINE
 DEFAULT_TIMEOUT_SECONDS = 30.0
+DEFAULT_UPSERT_BATCH_SIZE = 256
 
 # Chunk ids are sha256 hex digests, which aren't valid Qdrant point ids
 # (unsigned int or UUID only). This namespace derives a stable UUID per
@@ -31,6 +34,7 @@ class QdrantVectorStore:
     api_key: str | None = None
     distance: qdrant_models.Distance = DEFAULT_DISTANCE
     timeout: float = DEFAULT_TIMEOUT_SECONDS
+    upsert_batch_size: int = DEFAULT_UPSERT_BATCH_SIZE
     store_name: str = field(default="qdrant", init=False)
     _client: QdrantClient = field(init=False, repr=False)
 
@@ -57,21 +61,33 @@ class QdrantVectorStore:
     def upsert(self, points: list[VectorPoint]) -> None:
         if not points:
             return
-        self._client.upsert(
-            collection_name=self.collection_name,
-            points=[
-                qdrant_models.PointStruct(
-                    id=_point_id(point.chunk_id),
-                    vector=point.vector,
-                    payload={
-                        "chunk_id": point.chunk_id,
-                        "text": point.text,
-                        **point.metadata,
-                    },
+        total_batches = math.ceil(len(points) / self.upsert_batch_size)
+        for batch_index, start in enumerate(
+            range(0, len(points), self.upsert_batch_size), start=1
+        ):
+            batch = points[start : start + self.upsert_batch_size]
+            with logfire.span(
+                "upsert batch {batch_index}/{total_batches} ({remaining} points left)",
+                batch_index=batch_index,
+                total_batches=total_batches,
+                point_count=len(batch),
+                remaining=len(points) - start,
+            ):
+                self._client.upsert(
+                    collection_name=self.collection_name,
+                    points=[
+                        qdrant_models.PointStruct(
+                            id=_point_id(point.chunk_id),
+                            vector=point.vector,
+                            payload={
+                                "chunk_id": point.chunk_id,
+                                "text": point.text,
+                                **point.metadata,
+                            },
+                        )
+                        for point in batch
+                    ],
                 )
-                for point in points
-            ],
-        )
 
     def search(self, vector: list[float], *, limit: int = 10) -> list[VectorMatch]:
         response = self._client.query_points(

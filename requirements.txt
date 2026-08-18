@@ -25,8 +25,8 @@ python-pptx
 # pytest provides a concise test runner for the ingestion test suite.
 pytest
 
-# google-genai is the Gemini Developer API SDK used to generate chunk embeddings.
-google-genai
-
 # qdrant-client talks to Qdrant (Cloud or self-hosted) for vector storage and search.
 qdrant-client
+
+# sentence-transformers runs Nomic Embed Text v1.5 locally (768-dim, offline, no rate limits).
+sentence-transformers

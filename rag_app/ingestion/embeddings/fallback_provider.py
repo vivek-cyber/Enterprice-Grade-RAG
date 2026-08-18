@@ -5,7 +5,11 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
-from rag_app.ingestion.embeddings.base import EmbeddingProvider, EmbeddingRecord
+from rag_app.ingestion.embeddings.base import (
+    EmbeddingProvider,
+    EmbeddingRecord,
+    ProgressCallback,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,11 +33,16 @@ class FallbackEmbeddingProvider:
     def model_name(self) -> str:
         return self.providers[0].model_name
 
-    def embed_texts(self, texts: list[str]) -> list[EmbeddingRecord]:
+    def embed_texts(
+        self,
+        texts: list[str],
+        *,
+        progress_callback: ProgressCallback | None = None,
+    ) -> list[EmbeddingRecord]:
         failures: list[str] = []
         for provider in self.providers:
             try:
-                return provider.embed_texts(texts)
+                return provider.embed_texts(texts, progress_callback=progress_callback)
             except Exception as exc:
                 failures.append(f"{provider.provider_name}/{provider.model_name}: {exc}")
                 logger.warning(
