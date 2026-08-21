@@ -1,3 +1,5 @@
+"""Tests for NomicEmbeddingProvider: batching, prefixing, normalization, truncation."""
+
 from __future__ import annotations
 
 import math
@@ -17,12 +19,18 @@ from rag_app.ingestion.embeddings.nomic_provider import (
 class FakeModel:
     """Stands in for a loaded SentenceTransformer."""
 
-    def __init__(self, *, fails: bool = False, dim: int = NATIVE_DIMENSIONALITY) -> None:
+    def __init__(
+        self, *, fails: bool = False, dim: int = NATIVE_DIMENSIONALITY
+    ) -> None:
+        """Configure whether encode() raises and how many dimensions it returns."""
+
         self.fails = fails
         self.dim = dim
         self.calls: list[list[str]] = []
 
-    def encode(self, texts, **kwargs):
+    def encode(self, texts: list[str], **kwargs: object) -> list[list[float]]:
+        """Record the call, then either raise or return deterministic fake vectors."""
+
         self.calls.append(list(texts))
         if self.fails:
             raise RuntimeError("inference exploded")
@@ -39,7 +47,11 @@ def _make_provider(**overrides) -> tuple[NomicEmbeddingProvider, FakeModel]:
 
 
 class NomicEmbeddingProviderTests(unittest.TestCase):
+    """Verifies config validation, batching, prefixing, normalization, and metadata."""
+
     def test_defaults_are_768_dim_nomic_v15(self) -> None:
+        """Defaults are 768 dim nomic v15."""
+
         provider, _ = _make_provider()
 
         self.assertEqual(DEFAULT_MODEL_NAME, provider.model_name)
@@ -48,14 +60,20 @@ class NomicEmbeddingProviderTests(unittest.TestCase):
         self.assertEqual("nomic-local", provider.provider_name)
 
     def test_non_positive_batch_size_raises_at_construction(self) -> None:
+        """Non positive batch size raises at construction."""
+
         with self.assertRaises(NomicEmbeddingConfigError):
             NomicEmbeddingProvider(_model=FakeModel(), batch_size=0)
 
     def test_output_dimensionality_above_native_raises_at_construction(self) -> None:
+        """Output dimensionality above native raises at construction."""
+
         with self.assertRaises(NomicEmbeddingConfigError):
             NomicEmbeddingProvider(_model=FakeModel(), output_dimensionality=1024)
 
     def test_embed_texts_empty_list_returns_empty_without_calling_model(self) -> None:
+        """Embed texts empty list returns empty without calling model."""
+
         provider, model = _make_provider()
 
         records = provider.embed_texts([])
@@ -64,6 +82,8 @@ class NomicEmbeddingProviderTests(unittest.TestCase):
         self.assertEqual([], model.calls)
 
     def test_embed_texts_applies_document_task_prefix(self) -> None:
+        """Embed texts applies document task prefix."""
+
         provider, model = _make_provider()
 
         provider.embed_texts(["hello"])
@@ -71,6 +91,8 @@ class NomicEmbeddingProviderTests(unittest.TestCase):
         self.assertEqual([[f"{DEFAULT_DOCUMENT_PREFIX}hello"]], model.calls)
 
     def test_embed_texts_batches_requests_by_batch_size(self) -> None:
+        """Embed texts batches requests by batch size."""
+
         provider, model = _make_provider(batch_size=2)
 
         provider.embed_texts(["a", "bb", "ccc", "dddd", "eeeee"])
@@ -78,6 +100,8 @@ class NomicEmbeddingProviderTests(unittest.TestCase):
         self.assertEqual([2, 2, 1], [len(call) for call in model.calls])
 
     def test_embed_texts_returns_768_dim_vectors(self) -> None:
+        """Embed texts returns 768 dim vectors."""
+
         provider, _ = _make_provider()
 
         records = provider.embed_texts(["hello", "world"])
@@ -87,6 +111,8 @@ class NomicEmbeddingProviderTests(unittest.TestCase):
             self.assertEqual(768, len(record.vector))
 
     def test_vectors_are_l2_normalized_by_default(self) -> None:
+        """Vectors are l2 normalized by default."""
+
         provider, _ = _make_provider()
 
         records = provider.embed_texts(["hello"])
@@ -95,6 +121,8 @@ class NomicEmbeddingProviderTests(unittest.TestCase):
         self.assertAlmostEqual(1.0, norm, places=6)
 
     def test_normalization_can_be_disabled(self) -> None:
+        """Normalization can be disabled."""
+
         provider, _ = _make_provider(normalize=False)
 
         records = provider.embed_texts(["hello"])
@@ -103,6 +131,8 @@ class NomicEmbeddingProviderTests(unittest.TestCase):
         self.assertNotAlmostEqual(1.0, norm, places=6)
 
     def test_matryoshka_truncation_yields_normalized_shorter_vectors(self) -> None:
+        """Matryoshka truncation yields normalized shorter vectors."""
+
         provider, _ = _make_provider(output_dimensionality=256)
 
         records = provider.embed_texts(["hello"])
@@ -112,6 +142,8 @@ class NomicEmbeddingProviderTests(unittest.TestCase):
         self.assertAlmostEqual(1.0, norm, places=6)
 
     def test_embed_texts_uses_positional_placeholder_chunk_ids(self) -> None:
+        """Embed texts uses positional placeholder chunk ids."""
+
         provider, _ = _make_provider(batch_size=2)
 
         records = provider.embed_texts(["a", "bb", "ccc"])
@@ -119,6 +151,8 @@ class NomicEmbeddingProviderTests(unittest.TestCase):
         self.assertEqual(["0", "1", "2"], [record.chunk_id for record in records])
 
     def test_records_carry_model_name_and_task_prefix_metadata(self) -> None:
+        """Records carry model name and task prefix metadata."""
+
         provider, _ = _make_provider()
 
         records = provider.embed_texts(["hello"])
@@ -127,12 +161,16 @@ class NomicEmbeddingProviderTests(unittest.TestCase):
         self.assertEqual({"task_prefix": DEFAULT_DOCUMENT_PREFIX}, records[0].metadata)
 
     def test_inference_failure_raises_runtime_error(self) -> None:
+        """Inference failure raises runtime error."""
+
         provider, _ = _make_provider(model=FakeModel(fails=True))
 
         with self.assertRaises(NomicEmbeddingRuntimeError):
             provider.embed_texts(["hello"])
 
     def test_progress_callback_reports_cumulative_counts_per_batch(self) -> None:
+        """Progress callback reports cumulative counts per batch."""
+
         provider, _ = _make_provider(batch_size=2)
         seen: list[tuple[int, int]] = []
 
@@ -144,6 +182,8 @@ class NomicEmbeddingProviderTests(unittest.TestCase):
         self.assertEqual([(2, 5), (4, 5), (5, 5)], seen)
 
     def test_order_is_preserved_across_batches(self) -> None:
+        """Order is preserved across batches."""
+
         provider, _ = _make_provider(batch_size=2, normalize=False)
 
         records = provider.embed_texts(["a", "bb", "ccc", "dddd", "eeeee"])

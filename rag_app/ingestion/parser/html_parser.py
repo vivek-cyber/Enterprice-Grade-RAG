@@ -107,10 +107,14 @@ class _StructuralHtmlParser(HTMLParser):
 
 
 class HtmlParser(BaseParser):
+    """Parses HTML via Docling, falling back to a structural HTML walk on failure."""
+
     parser_name = "html"
     supported_extensions = {".html", ".htm"}
 
     def parse(self, path: Path) -> ParseResult:
+        """Try Docling first, then the built-in structural parser if Docling fails."""
+
         docling_result = self.parse_with_docling(path)
         if docling_result.succeeded:
             return docling_result
@@ -124,6 +128,8 @@ class HtmlParser(BaseParser):
         return fallback_result
 
     def parse_with_docling(self, path: Path) -> ParseResult:
+        """Convert via Docling for layout-aware extraction."""
+
         try:
             content, metadata = convert_with_docling(path)
             return ParseResult(
@@ -138,6 +144,8 @@ class HtmlParser(BaseParser):
             )
 
     def parse_with_fallback(self, path: Path) -> ParseResult:
+        """Extract text with _StructuralHtmlParser, preserving block boundaries and links."""
+
         raw = path.read_text(encoding="utf-8", errors="replace")
         parser = _StructuralHtmlParser()
         parser.feed(raw)

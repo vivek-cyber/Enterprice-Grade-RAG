@@ -26,11 +26,15 @@ class FallbackEmbeddingProvider:
     provider_name: str = field(default="fallback-chain", init=False)
 
     def __post_init__(self) -> None:
+        """Reject an empty provider chain; there would be nothing to fall through to."""
+
         if not self.providers:
             raise ValueError("providers must contain at least one EmbeddingProvider")
 
     @property
     def model_name(self) -> str:
+        """Report the primary provider's model name, since it's used unless it fails."""
+
         return self.providers[0].model_name
 
     def embed_texts(
@@ -39,12 +43,16 @@ class FallbackEmbeddingProvider:
         *,
         progress_callback: ProgressCallback | None = None,
     ) -> list[EmbeddingRecord]:
+        """Return embeddings from the first provider that succeeds, in order."""
+
         failures: list[str] = []
         for provider in self.providers:
             try:
                 return provider.embed_texts(texts, progress_callback=progress_callback)
             except Exception as exc:
-                failures.append(f"{provider.provider_name}/{provider.model_name}: {exc}")
+                failures.append(
+                    f"{provider.provider_name}/{provider.model_name}: {exc}"
+                )
                 logger.warning(
                     "Embedding provider %s/%s failed, trying next fallback: %s",
                     provider.provider_name,

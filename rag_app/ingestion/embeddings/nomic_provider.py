@@ -41,6 +41,8 @@ class NomicEmbeddingRuntimeError(RuntimeError):
 
 @dataclass(slots=True, kw_only=True)
 class NomicEmbeddingProvider:
+    """Local, offline embedding provider backed by Nomic Embed Text v1.5."""
+
     model_name: str = DEFAULT_MODEL_NAME
     task_prefix: str = DEFAULT_DOCUMENT_PREFIX
     output_dimensionality: int = DEFAULT_OUTPUT_DIMENSIONALITY
@@ -55,6 +57,8 @@ class NomicEmbeddingProvider:
     _model: Any | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
+        """Validate config and resolve device/cache overrides from the environment."""
+
         if self.batch_size <= 0:
             raise NomicEmbeddingConfigError("batch_size must be positive")
         if not 0 < self.output_dimensionality <= NATIVE_DIMENSIONALITY:
@@ -64,7 +68,9 @@ class NomicEmbeddingProvider:
             )
 
         self.device = self.device or os.getenv("NOMIC_EMBED_DEVICE") or None
-        self.cache_folder = self.cache_folder or os.getenv("NOMIC_EMBED_CACHE_DIR") or None
+        self.cache_folder = (
+            self.cache_folder or os.getenv("NOMIC_EMBED_CACHE_DIR") or None
+        )
 
     def embed_texts(
         self,
@@ -72,13 +78,17 @@ class NomicEmbeddingProvider:
         *,
         progress_callback: ProgressCallback | None = None,
     ) -> list[EmbeddingRecord]:
+        """Embed texts in batches, loading the model lazily on first use."""
+
         if not texts:
             return []
 
         model = self._ensure_model()
         vectors: list[list[float]] = []
         total_batches = math.ceil(len(texts) / self.batch_size)
-        for batch_index, start in enumerate(range(0, len(texts), self.batch_size), start=1):
+        for batch_index, start in enumerate(
+            range(0, len(texts), self.batch_size), start=1
+        ):
             batch = texts[start : start + self.batch_size]
             with logfire.span(
                 "embed batch {batch_index}/{total_batches} ({remaining} chunks left)",
@@ -145,7 +155,9 @@ class NomicEmbeddingProvider:
                 show_progress_bar=False,
             )
         except Exception as exc:
-            raise NomicEmbeddingRuntimeError(f"Nomic embedding request failed: {exc}") from exc
+            raise NomicEmbeddingRuntimeError(
+                f"Nomic embedding request failed: {exc}"
+            ) from exc
 
         return [self._postprocess(vector) for vector in raw_vectors]
 

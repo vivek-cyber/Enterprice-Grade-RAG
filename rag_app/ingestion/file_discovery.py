@@ -38,7 +38,9 @@ def discover_files(
                 sha256=hash_file(path),
                 size_bytes=path.stat().st_size,
                 supported=supported,
-                skip_reason=None if supported else f"Unsupported extension: {extension}",
+                skip_reason=None
+                if supported
+                else f"Unsupported extension: {extension}",
             )
         )
 
@@ -46,6 +48,8 @@ def discover_files(
 
 
 def hash_file(path: Path, *, chunk_size: int = 1024 * 1024) -> str:
+    """Return the sha256 hex digest of a file's contents, read in fixed-size chunks."""
+
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         while chunk := handle.read(chunk_size):

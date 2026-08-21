@@ -9,11 +9,15 @@ from rag_app.ingestion.parser.base import BaseParser
 
 
 class TxtParser(BaseParser):
+    """Parses plain-text files, retrying a fixed list of encodings on decode failure."""
+
     parser_name = "txt"
     supported_extensions = {".txt"}
     encodings = ("utf-8", "utf-8-sig", "cp1252", "latin-1")
 
     def parse(self, path: Path) -> ParseResult:
+        """Read the file as text, trying each encoding in self.encodings in order."""
+
         warnings: list[str] = []
         last_error: Exception | None = None
 

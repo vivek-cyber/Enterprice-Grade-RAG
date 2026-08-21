@@ -29,6 +29,8 @@ class QdrantConfigError(RuntimeError):
 
 @dataclass(slots=True, kw_only=True)
 class QdrantVectorStore:
+    """Vector store backed by Qdrant (Cloud or self-hosted)."""
+
     collection_name: str
     url: str | None = None
     api_key: str | None = None
@@ -39,15 +41,21 @@ class QdrantVectorStore:
     _client: QdrantClient = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
+        """Resolve connection settings from args or environment and open the client."""
+
         resolved_url = self.url or os.getenv("QDRANT_URL")
         if not resolved_url:
             raise QdrantConfigError("QDRANT_URL environment variable is not set.")
 
         self.url = resolved_url
         self.api_key = self.api_key or os.getenv("QDRANT_API_KEY")
-        self._client = QdrantClient(url=self.url, api_key=self.api_key, timeout=self.timeout)
+        self._client = QdrantClient(
+            url=self.url, api_key=self.api_key, timeout=self.timeout
+        )
 
     def ensure_collection(self, vector_size: int) -> None:
+        """Create the collection with the given vector size if it doesn't exist yet."""
+
         if self._client.collection_exists(self.collection_name):
             return
         self._client.create_collection(
@@ -59,6 +67,8 @@ class QdrantVectorStore:
         )
 
     def upsert(self, points: list[VectorPoint]) -> None:
+        """Insert or overwrite points in batches, keyed by a deterministic point id."""
+
         if not points:
             return
         total_batches = math.ceil(len(points) / self.upsert_batch_size)
@@ -90,6 +100,8 @@ class QdrantVectorStore:
                 )
 
     def search(self, vector: list[float], *, limit: int = 10) -> list[VectorMatch]:
+        """Return the nearest points to vector, most similar first."""
+
         response = self._client.query_points(
             collection_name=self.collection_name,
             query=vector,
@@ -110,6 +122,8 @@ class QdrantVectorStore:
         ]
 
     def delete(self, chunk_ids: list[str]) -> None:
+        """Remove points by chunk_id."""
+
         if not chunk_ids:
             return
         self._client.delete(

@@ -27,6 +27,8 @@ class BaseParser(ABC):
         title: str | None = None,
         metadata: dict | None = None,
     ) -> Document:
+        """Wrap extracted content into a Document with a stable id and base metadata."""
+
         source_type = path.suffix.lower()
         return Document(
             id=stable_document_id(path),

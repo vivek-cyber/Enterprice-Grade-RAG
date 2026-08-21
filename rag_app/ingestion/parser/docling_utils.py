@@ -68,7 +68,11 @@ def _reject_incomplete_conversion(result: Any) -> None:
             if (page_no := getattr(error, "page_no", None)) is not None
         }
     )
-    detail = f", {len(failed_pages)} page(s) failed: {_summarize_pages(failed_pages)}" if failed_pages else ""
+    detail = (
+        f", {len(failed_pages)} page(s) failed: {_summarize_pages(failed_pages)}"
+        if failed_pages
+        else ""
+    )
     raise DoclingConversionError(f"Docling conversion status {status_name}{detail}")
 
 

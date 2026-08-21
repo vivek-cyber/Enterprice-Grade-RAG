@@ -1,3 +1,5 @@
+"""Tests for parsing, cleaning, chunking, checkpointing, and end-to-end ingestion."""
+
 from __future__ import annotations
 
 import tempfile
@@ -28,13 +30,19 @@ NOISY_DATA = ROOT / "DATA" / "noisy_data"
 
 
 class IngestionTests(unittest.TestCase):
+    """Verifies the parser registry, file discovery, and per-format parsing behavior."""
+
     def test_parser_registry_maps_supported_extensions(self) -> None:
+        """Parser registry maps supported extensions."""
+
         registry = build_parser_registry()
 
         for extension in (".txt", ".html", ".pdf", ".docx", ".pptx"):
             self.assertIn(extension, registry)
 
     def test_file_discovery_classifies_supported_files(self) -> None:
+        """File discovery classifies supported files."""
+
         records = discover_files(TRUE_DATA, set(build_parser_registry()))
 
         self.assertGreaterEqual(len(records), 6)
@@ -42,6 +50,8 @@ class IngestionTests(unittest.TestCase):
         self.assertTrue(all(record.supported for record in records))
 
     def test_txt_html_docx_and_pptx_parse_true_data(self) -> None:
+        """Txt html docx and pptx parse true data."""
+
         registry = build_parser_registry()
         samples = [
             TRUE_DATA / "parallel_work_queue.txt",
@@ -58,6 +68,8 @@ class IngestionTests(unittest.TestCase):
                 self.assertTrue(result.document.content.strip())
 
     def test_docling_primary_path_is_used_when_available(self) -> None:
+        """Docling primary path is used when available."""
+
         parser = HtmlParser()
 
         with patch(
@@ -71,6 +83,8 @@ class IngestionTests(unittest.TestCase):
         self.assertEqual("docling", result.document.metadata["parser_engine"])
 
     def test_parser_falls_back_when_docling_fails(self) -> None:
+        """Parser falls back when docling fails."""
+
         parser = HtmlParser()
 
         with patch(
@@ -84,6 +98,8 @@ class IngestionTests(unittest.TestCase):
         self.assertIn("Docling failed", result.warnings)
 
     def test_docling_pdf_options_disable_picture_models(self) -> None:
+        """Docling pdf options disable picture models."""
+
         # Picture classification/description exhausted memory partway through
         # most PDFs and cost whole pages of text, so they stay off; table
         # structure is the structural feature worth paying for.
@@ -132,7 +148,10 @@ class IngestionTests(unittest.TestCase):
             raise ModuleNotFoundError(name)
 
         with (
-            patch("rag_app.ingestion.parser.docling_utils.import_module", fake_import_module),
+            patch(
+                "rag_app.ingestion.parser.docling_utils.import_module",
+                fake_import_module,
+            ),
             patch.dict(
                 "os.environ",
                 {"DOCLING_ARTIFACTS_PATH": str(ROOT / ".docling-models")},
@@ -152,6 +171,8 @@ class IngestionTests(unittest.TestCase):
         self.assertEqual(ROOT / ".docling-models", options.artifacts_path)
 
     def test_docling_partial_success_is_rejected(self) -> None:
+        """Docling partial success is rejected."""
+
         # Docling flags failed pages and still returns a document containing
         # only the survivors. Accepting that silently indexes a truncated file,
         # so a partial conversion must fail loudly enough to trigger fallback.
@@ -199,6 +220,8 @@ class IngestionTests(unittest.TestCase):
 
 
 class CheckpointTests(unittest.TestCase):
+    """Verifies checkpoint caching, cleaning/chunking, and the full ingest_folder pipeline."""
+
     def _record(self, sha256: str = "abc123", path: str = "doc.pdf") -> FileRecord:
         return FileRecord(
             path=Path(path),
@@ -227,6 +250,8 @@ class CheckpointTests(unittest.TestCase):
         return CheckpointEntry(document=document, chunks=[chunk], warnings=["degraded"])
 
     def test_checkpoint_round_trips_document_and_chunks(self) -> None:
+        """Checkpoint round trips document and chunks."""
+
         with tempfile.TemporaryDirectory() as tmp:
             store = ChunkCheckpointStore(Path(tmp))
             key = store.key(self._record(), chunk_size=1200, chunk_overlap=150)
@@ -244,13 +269,17 @@ class CheckpointTests(unittest.TestCase):
         self.assertEqual("hello world", loaded.chunks[0].text)
 
     def test_checkpoint_key_changes_with_content_and_chunk_params(self) -> None:
+        """Checkpoint key changes with content and chunk params."""
+
         with tempfile.TemporaryDirectory() as tmp:
             store = ChunkCheckpointStore(Path(tmp))
             baseline = store.key(self._record(), chunk_size=1200, chunk_overlap=150)
 
             self.assertNotEqual(
                 baseline,
-                store.key(self._record("different"), chunk_size=1200, chunk_overlap=150),
+                store.key(
+                    self._record("different"), chunk_size=1200, chunk_overlap=150
+                ),
             )
             self.assertNotEqual(
                 baseline, store.key(self._record(), chunk_size=800, chunk_overlap=150)
@@ -269,6 +298,8 @@ class CheckpointTests(unittest.TestCase):
             )
 
     def test_missing_and_corrupt_entries_are_cache_misses(self) -> None:
+        """Missing and corrupt entries are cache misses."""
+
         with tempfile.TemporaryDirectory() as tmp:
             store = ChunkCheckpointStore(Path(tmp))
             key = store.key(self._record(), chunk_size=1200, chunk_overlap=150)
@@ -278,6 +309,8 @@ class CheckpointTests(unittest.TestCase):
             self.assertIsNone(store.load(key))
 
     def test_ingest_folder_replays_files_from_checkpoint(self) -> None:
+        """Ingest folder replays files from checkpoint."""
+
         with tempfile.TemporaryDirectory() as tmp:
             store = ChunkCheckpointStore(Path(tmp))
 
@@ -294,6 +327,8 @@ class CheckpointTests(unittest.TestCase):
         )
 
     def test_pdf_parser_falls_back_when_docling_fails(self) -> None:
+        """Pdf parser falls back when docling fails."""
+
         parser = PdfParser()
 
         with (
@@ -313,6 +348,8 @@ class CheckpointTests(unittest.TestCase):
         self.assertTrue(any("pypdf" in error for error in result.errors))
 
     def test_pipeline_records_parser_failures(self) -> None:
+        """Pipeline records parser failures."""
+
         class FailingParser:
             parser_name = "failing-html"
             supported_extensions = {".html"}
@@ -330,11 +367,15 @@ class CheckpointTests(unittest.TestCase):
         self.assertEqual(report.total_files, report.failed_count)
 
     def test_cleaning_removes_noise_but_keeps_content(self) -> None:
+        """Cleaning removes noise but keeps content."""
+
         cleaned = clean_text("Hello\x00   world\r\n\r\n\r\n    code   line  ")
 
         self.assertEqual("Hello world\n\n code line", cleaned)
 
     def test_chunking_creates_ordered_chunks_with_metadata(self) -> None:
+        """Chunking creates ordered chunks with metadata."""
+
         document = Document(
             id="doc-1",
             source_path=TRUE_DATA / "parallel_work_queue.txt",
@@ -347,11 +388,15 @@ class CheckpointTests(unittest.TestCase):
         chunks = chunk_document(document, chunk_size=70, chunk_overlap=10)
 
         self.assertGreater(len(chunks), 1)
-        self.assertEqual(list(range(len(chunks))), [chunk.chunk_index for chunk in chunks])
+        self.assertEqual(
+            list(range(len(chunks))), [chunk.chunk_index for chunk in chunks]
+        )
         self.assertTrue(all(chunk.metadata["source_path"] for chunk in chunks))
         self.assertTrue(all(chunk.document_id == document.id for chunk in chunks))
 
     def test_embeddings_contract_imports_without_provider_calls(self) -> None:
+        """Embeddings contract imports without provider calls."""
+
         record = EmbeddingRecord(
             chunk_id="chunk-1",
             vector=[0.1, 0.2],
@@ -360,12 +405,18 @@ class CheckpointTests(unittest.TestCase):
 
         self.assertEqual("chunk-1", record.chunk_id)
 
-    def test_ingest_folder_without_embedding_provider_leaves_embeddings_empty(self) -> None:
+    def test_ingest_folder_without_embedding_provider_leaves_embeddings_empty(
+        self,
+    ) -> None:
+        """Ingest folder without embedding provider leaves embeddings empty."""
+
         report = ingest_folder(TRUE_DATA)
 
         self.assertEqual([], report.embeddings)
 
     def test_ingest_folder_populates_embeddings_when_provider_supplied(self) -> None:
+        """Ingest folder populates embeddings when provider supplied."""
+
         class FakeEmbeddingProvider:
             provider_name = "fake"
             model_name = "fake-model"
@@ -376,7 +427,11 @@ class CheckpointTests(unittest.TestCase):
                 if progress_callback is not None:
                     progress_callback(len(texts), len(texts))
                 return [
-                    EmbeddingRecord(chunk_id=str(index), vector=[float(index)], model=self.model_name)
+                    EmbeddingRecord(
+                        chunk_id=str(index),
+                        vector=[float(index)],
+                        model=self.model_name,
+                    )
                     for index in range(len(texts))
                 ]
 
@@ -387,6 +442,8 @@ class CheckpointTests(unittest.TestCase):
             self.assertEqual(chunk.id, record.chunk_id)
 
     def test_ingest_folder_raises_on_embedding_count_mismatch(self) -> None:
+        """Ingest folder raises on embedding count mismatch."""
+
         class ShortEmbeddingProvider:
             provider_name = "short"
             model_name = "short-model"
@@ -394,7 +451,9 @@ class CheckpointTests(unittest.TestCase):
             def embed_texts(
                 self, texts: list[str], *, progress_callback=None
             ) -> list[EmbeddingRecord]:
-                return [EmbeddingRecord(chunk_id="0", vector=[0.0], model=self.model_name)]
+                return [
+                    EmbeddingRecord(chunk_id="0", vector=[0.0], model=self.model_name)
+                ]
 
         with self.assertRaises(ValueError):
             ingest_folder(TRUE_DATA, embedding_provider=ShortEmbeddingProvider())
@@ -402,6 +461,8 @@ class CheckpointTests(unittest.TestCase):
     def test_ingest_folder_raises_when_vector_store_given_without_embedding_provider(
         self,
     ) -> None:
+        """Ingest folder raises when vector store given without embedding provider."""
+
         class FakeVectorStore:
             store_name = "fake"
 
@@ -421,6 +482,8 @@ class CheckpointTests(unittest.TestCase):
             ingest_folder(TRUE_DATA, vector_store=FakeVectorStore())
 
     def test_ingest_folder_upserts_into_vector_store_when_supplied(self) -> None:
+        """Ingest folder upserts into vector store when supplied."""
+
         class FakeEmbeddingProvider:
             provider_name = "fake"
             model_name = "fake-model"
@@ -431,7 +494,11 @@ class CheckpointTests(unittest.TestCase):
                 if progress_callback is not None:
                     progress_callback(len(texts), len(texts))
                 return [
-                    EmbeddingRecord(chunk_id=str(index), vector=[float(index)], model=self.model_name)
+                    EmbeddingRecord(
+                        chunk_id=str(index),
+                        vector=[float(index)],
+                        model=self.model_name,
+                    )
                     for index in range(len(texts))
                 ]
 
@@ -463,7 +530,9 @@ class CheckpointTests(unittest.TestCase):
 
         self.assertEqual(1, vector_store.ensured_vector_size)
         self.assertEqual(len(report.chunks), len(vector_store.upserted_points))
-        for chunk, point in zip(report.chunks, vector_store.upserted_points, strict=True):
+        for chunk, point in zip(
+            report.chunks, vector_store.upserted_points, strict=True
+        ):
             self.assertEqual(chunk.id, point.chunk_id)
             self.assertEqual(chunk.text, point.text)
 

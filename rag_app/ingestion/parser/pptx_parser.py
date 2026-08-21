@@ -17,10 +17,14 @@ SLIDE_RE = re.compile(r"ppt/slides/slide(\d+)\.xml$")
 
 
 class PptxParser(BaseParser):
+    """Parses .pptx files via Docling, falling back to raw slide XML on failure."""
+
     parser_name = "pptx"
     supported_extensions = {".pptx"}
 
     def parse(self, path: Path) -> ParseResult:
+        """Try Docling first, then the slide-XML fallback if Docling fails."""
+
         docling_result = self.parse_with_docling(path)
         if docling_result.succeeded:
             return docling_result
@@ -34,6 +38,8 @@ class PptxParser(BaseParser):
         return fallback_result
 
     def parse_with_docling(self, path: Path) -> ParseResult:
+        """Convert via Docling for layout-aware extraction."""
+
         try:
             content, metadata = convert_with_docling(path)
             return ParseResult(
@@ -48,14 +54,12 @@ class PptxParser(BaseParser):
             )
 
     def parse_with_fallback(self, path: Path) -> ParseResult:
+        """Extract text directly from each slide's XML, in slide order."""
+
         try:
             with zipfile.ZipFile(path) as archive:
                 slide_names = sorted(
-                    (
-                        name
-                        for name in archive.namelist()
-                        if SLIDE_RE.match(name)
-                    ),
+                    (name for name in archive.namelist() if SLIDE_RE.match(name)),
                     key=_slide_sort_key,
                 )
                 slide_texts = [

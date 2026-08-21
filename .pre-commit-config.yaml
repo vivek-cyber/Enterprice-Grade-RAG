@@ -1,0 +1,23 @@
+# Runs on every `git commit` (after `pre-commit install`) and again in CI
+# (.github/workflows/lint.yml runs `pre-commit run --all-files`), so local
+# and CI enforcement can never drift out of sync -- one config, two triggers.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.4
+    hooks:
+      # Docstring + type-annotation coverage; rules and per-file-ignores live
+      # in ruff.toml.
+      - id: ruff-check
+      # Formatting (line wrapping, quote style, blank lines). Rewrites files
+      # in place -- if it fails, the fix is already sitting in the working
+      # tree; re-`git add` and commit again.
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: check-docs
+        name: Required READMEs present
+        entry: python scripts/check_docs.py
+        language: system
+        pass_filenames: false
+        always_run: true

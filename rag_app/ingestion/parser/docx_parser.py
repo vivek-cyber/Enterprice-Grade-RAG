@@ -15,10 +15,14 @@ WORD_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
 
 class DocxParser(BaseParser):
+    """Parses .docx files via Docling, falling back to raw OOXML on failure."""
+
     parser_name = "docx"
     supported_extensions = {".docx"}
 
     def parse(self, path: Path) -> ParseResult:
+        """Try Docling first, then the OOXML-XML fallback if Docling fails."""
+
         docling_result = self.parse_with_docling(path)
         if docling_result.succeeded:
             return docling_result
@@ -32,6 +36,8 @@ class DocxParser(BaseParser):
         return fallback_result
 
     def parse_with_docling(self, path: Path) -> ParseResult:
+        """Convert via Docling for layout-aware extraction (headings, tables)."""
+
         try:
             content, metadata = convert_with_docling(path)
             return ParseResult(
@@ -46,6 +52,8 @@ class DocxParser(BaseParser):
             )
 
     def parse_with_fallback(self, path: Path) -> ParseResult:
+        """Extract text directly from word/document.xml when Docling is unavailable."""
+
         try:
             with zipfile.ZipFile(path) as archive:
                 document_xml = archive.read("word/document.xml")
@@ -96,11 +104,7 @@ class DocxParser(BaseParser):
 
 
 def _paragraph_text(paragraph: ElementTree.Element) -> str:
-    texts = [
-        node.text or ""
-        for node in paragraph.iter()
-        if node.tag == f"{WORD_NS}t"
-    ]
+    texts = [node.text or "" for node in paragraph.iter() if node.tag == f"{WORD_NS}t"]
     return "".join(texts).strip()
 
 

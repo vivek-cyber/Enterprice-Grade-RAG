@@ -52,6 +52,8 @@ class AutoResumeControlFlowTests(unittest.TestCase):
     """Resume-loop logic with subprocess.run mocked out."""
 
     def test_returns_zero_on_first_successful_attempt(self) -> None:
+        """Returns zero on first successful attempt."""
+
         with tempfile.TemporaryDirectory() as tmp:
             args = _args(Path(tmp))
             with patch.object(
@@ -63,6 +65,8 @@ class AutoResumeControlFlowTests(unittest.TestCase):
             run.assert_called_once()
 
     def test_retries_after_crash_and_then_succeeds(self) -> None:
+        """Retries after crash and then succeeds."""
+
         # A crash that still banks new checkpoint files must be retried, not
         # treated as a stall -- only *zero* new progress should stop the loop.
         with tempfile.TemporaryDirectory() as tmp:
@@ -86,9 +90,13 @@ class AutoResumeControlFlowTests(unittest.TestCase):
             self.assertEqual(2, call_count)
 
     def test_stalls_stop_the_loop_instead_of_retrying_forever(self) -> None:
+        """Stalls stop the loop instead of retrying forever."""
+
         with tempfile.TemporaryDirectory() as tmp:
             checkpoint_dir = Path(tmp) / "checkpoint"
-            args = _args(Path(tmp), checkpoint_dir=checkpoint_dir, max_resume_attempts=10)
+            args = _args(
+                Path(tmp), checkpoint_dir=checkpoint_dir, max_resume_attempts=10
+            )
 
             call_count = 0
 
@@ -105,11 +113,15 @@ class AutoResumeControlFlowTests(unittest.TestCase):
             self.assertEqual(1, call_count)
 
     def test_gives_up_after_max_attempts_when_still_progressing(self) -> None:
+        """Gives up after max attempts when still progressing."""
+
         # Genuine forward progress every attempt, but never actually finishes
         # (returncode never 0) -- must not loop past the configured cap.
         with tempfile.TemporaryDirectory() as tmp:
             checkpoint_dir = Path(tmp) / "checkpoint"
-            args = _args(Path(tmp), checkpoint_dir=checkpoint_dir, max_resume_attempts=3)
+            args = _args(
+                Path(tmp), checkpoint_dir=checkpoint_dir, max_resume_attempts=3
+            )
 
             call_count = 0
 
@@ -127,6 +139,8 @@ class AutoResumeControlFlowTests(unittest.TestCase):
             self.assertEqual(3, call_count)
 
     def test_child_argv_uses_same_python_and_forwards_options(self) -> None:
+        """Child argv uses same python and forwards options."""
+
         with tempfile.TemporaryDirectory() as tmp:
             checkpoint_dir = Path(tmp) / "checkpoint"
             args = _args(
@@ -154,10 +168,18 @@ class AutoResumeControlFlowTests(unittest.TestCase):
             self.assertNotIn("--auto-resume", argv)
 
     def test_auto_resume_with_no_checkpoint_is_rejected_by_argparse(self) -> None:
+        """Auto resume with no checkpoint is rejected by argparse."""
+
         result = subprocess.run(
-            [sys.executable, str(ROOT / "scripts" / "ingest.py"),
-             str(TRUE_DATA), "--auto-resume", "--no-checkpoint"],
-            capture_output=True, text=True,
+            [
+                sys.executable,
+                str(ROOT / "scripts" / "ingest.py"),
+                str(TRUE_DATA),
+                "--auto-resume",
+                "--no-checkpoint",
+            ],
+            capture_output=True,
+            text=True,
         )
         self.assertNotEqual(0, result.returncode)
         self.assertIn("--auto-resume requires checkpointing", result.stderr)
@@ -167,8 +189,12 @@ class AutoResumeRealSubprocessTest(unittest.TestCase):
     """One real end-to-end run of the actual CLI, no mocking."""
 
     def test_real_run_completes_and_populates_checkpoint(self) -> None:
+        """Real run completes and populates checkpoint."""
+
         source_files = sorted(TRUE_DATA.glob("*"))[:3]
-        self.assertGreaterEqual(len(source_files), 1, "expected sample files in DATA/true_data")
+        self.assertGreaterEqual(
+            len(source_files), 1, "expected sample files in DATA/true_data"
+        )
 
         with tempfile.TemporaryDirectory() as tmp:
             source_dir = Path(tmp) / "source"
@@ -180,11 +206,17 @@ class AutoResumeRealSubprocessTest(unittest.TestCase):
 
             result = subprocess.run(
                 [
-                    sys.executable, str(ROOT / "scripts" / "ingest.py"),
-                    str(source_dir), "--dry-run", "--auto-resume",
-                    "--checkpoint-dir", str(checkpoint_dir),
+                    sys.executable,
+                    str(ROOT / "scripts" / "ingest.py"),
+                    str(source_dir),
+                    "--dry-run",
+                    "--auto-resume",
+                    "--checkpoint-dir",
+                    str(checkpoint_dir),
                 ],
-                capture_output=True, text=True, timeout=120,
+                capture_output=True,
+                text=True,
+                timeout=120,
             )
 
             self.assertEqual(0, result.returncode, msg=result.stdout + result.stderr)
@@ -197,11 +229,17 @@ class AutoResumeRealSubprocessTest(unittest.TestCase):
             # ingest_folder reads from, i.e. a genuine resume would work.
             second = subprocess.run(
                 [
-                    sys.executable, str(ROOT / "scripts" / "ingest.py"),
-                    str(source_dir), "--dry-run", "--auto-resume",
-                    "--checkpoint-dir", str(checkpoint_dir),
+                    sys.executable,
+                    str(ROOT / "scripts" / "ingest.py"),
+                    str(source_dir),
+                    "--dry-run",
+                    "--auto-resume",
+                    "--checkpoint-dir",
+                    str(checkpoint_dir),
                 ],
-                capture_output=True, text=True, timeout=120,
+                capture_output=True,
+                text=True,
+                timeout=120,
             )
             self.assertEqual(0, second.returncode, msg=second.stdout + second.stderr)
             self.assertIn(f"({len(cached)} from checkpoint)", second.stdout)

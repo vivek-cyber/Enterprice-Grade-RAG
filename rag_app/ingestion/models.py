@@ -45,6 +45,8 @@ class ParseResult:
 
     @property
     def succeeded(self) -> bool:
+        """True if parsing produced a document with no errors."""
+
         return self.document is not None and not self.errors
 
 
@@ -80,8 +82,12 @@ class IngestionReport:
 
     @property
     def failed_count(self) -> int:
+        """Number of files that failed to parse."""
+
         return len(self.failed_files)
 
     @property
     def skipped_count(self) -> int:
+        """Number of files skipped due to an unsupported extension."""
+
         return len(self.skipped_files)

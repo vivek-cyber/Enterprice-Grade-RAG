@@ -42,10 +42,14 @@ class ChunkCheckpointStore:
     """Content-addressed store of per-file parse+chunk results."""
 
     def __init__(self, root: Path) -> None:
+        """Create (if needed) and store entries under root."""
+
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
 
     def key(self, record: FileRecord, *, chunk_size: int, chunk_overlap: int) -> str:
+        """Derive a cache key from the file's path, content hash, and chunk params."""
+
         # The path belongs in the key even though the content hash looks
         # sufficient: document ids and chunk ids are derived from the path, so
         # two byte-identical files at different paths must not share an entry.
@@ -58,9 +62,13 @@ class ChunkCheckpointStore:
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     def path_for(self, key: str) -> Path:
+        """Return the on-disk path for a cache key."""
+
         return self.root / f"{key}.json"
 
     def load(self, key: str) -> CheckpointEntry | None:
+        """Return the cached entry for key, or None on any cache miss."""
+
         entry_path = self.path_for(key)
         try:
             raw = json.loads(entry_path.read_text(encoding="utf-8"))
@@ -81,6 +89,8 @@ class ChunkCheckpointStore:
             return None
 
     def save(self, key: str, entry: CheckpointEntry) -> None:
+        """Persist entry under key, atomically."""
+
         payload = {
             "schema_version": CHECKPOINT_SCHEMA_VERSION,
             "document": _document_to_dict(entry.document),

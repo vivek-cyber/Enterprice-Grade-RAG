@@ -1,0 +1,26 @@
+# Docstring + type-annotation coverage gate.
+#
+# Scope is deliberately narrow: only the "missing docstring" (D1xx) and
+# "missing type annotation" (ANN0xx/ANN2xx) rule families are enabled. This
+# checks that every new/edited function, method, and class is documented and
+# typed -- it does not enforce docstring wording/format (D2xx-D4xx) or opinion
+# on typing style (e.g. ANN401 on `Any`), so it stays low-noise as the
+# codebase grows instead of turning into a style debate.
+target-version = "py311"
+
+[lint]
+select = [
+    "D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107",  # missing docstrings
+    "ANN001", "ANN002", "ANN003",                                    # missing arg annotations
+    "ANN201", "ANN202", "ANN204", "ANN205", "ANN206",                # missing return annotations
+]
+
+[lint.per-file-ignores]
+# Tests document intent through descriptive method names + assertions; forcing
+# a docstring on every test_* method is unwanted churn for cases like
+# `test_falls_through_to_secondary_when_primary_fails`. Fixtures/helpers still
+# get D10x from the classes/functions selection above minus this exemption --
+# scoped to test method bodies specifically was not practical to select more
+# narrowly with per-file-ignores, so tests are fully exempt from D10x/ANN here
+# and covered instead by code review.
+"tests/**" = ["D100", "D101", "D102", "D103", "ANN001", "ANN002", "ANN003", "ANN201", "ANN202"]

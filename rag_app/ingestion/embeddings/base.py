@@ -18,6 +18,8 @@ ProgressCallback = Callable[[int, int], None]
 
 @dataclass(slots=True)
 class EmbeddingRecord:
+    """One embedded chunk: its vector plus the model and metadata that produced it."""
+
     chunk_id: str
     vector: list[float]
     model: str
@@ -25,6 +27,8 @@ class EmbeddingRecord:
 
 
 class EmbeddingProvider(Protocol):
+    """Contract implemented by every embedding backend (local or hosted)."""
+
     provider_name: str
     model_name: str
 

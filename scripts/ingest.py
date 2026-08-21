@@ -37,9 +37,17 @@ from rag_app.vectorstore.qdrant_store import QdrantVectorStore  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Ingest documents into the vector store.")
-    parser.add_argument("source_dir", type=Path, help="Folder to ingest (searched recursively).")
-    parser.add_argument("--collection", default="rag_documents", help="Qdrant collection name.")
+    """Parse CLI arguments, rejecting the invalid --auto-resume + --no-checkpoint combo."""
+
+    parser = argparse.ArgumentParser(
+        description="Ingest documents into the vector store."
+    )
+    parser.add_argument(
+        "source_dir", type=Path, help="Folder to ingest (searched recursively)."
+    )
+    parser.add_argument(
+        "--collection", default="rag_documents", help="Qdrant collection name."
+    )
     parser.add_argument("--chunk-size", type=int, default=1200)
     parser.add_argument("--chunk-overlap", type=int, default=150)
     parser.add_argument(
@@ -105,10 +113,14 @@ def run_auto_resume(args: argparse.Namespace) -> int:
         sys.executable,
         str(Path(__file__).resolve()),
         str(args.source_dir),
-        "--collection", args.collection,
-        "--chunk-size", str(args.chunk_size),
-        "--chunk-overlap", str(args.chunk_overlap),
-        "--checkpoint-dir", str(checkpoint_dir),
+        "--collection",
+        args.collection,
+        "--chunk-size",
+        str(args.chunk_size),
+        "--chunk-overlap",
+        str(args.chunk_overlap),
+        "--checkpoint-dir",
+        str(checkpoint_dir),
     ]
     if args.dry_run:
         child_argv.append("--dry-run")
@@ -118,8 +130,10 @@ def run_auto_resume(args: argparse.Namespace) -> int:
 
     for attempt in range(1, args.max_resume_attempts + 1):
         before = cached_file_count()
-        print(f"\n=== auto-resume: attempt {attempt}/{args.max_resume_attempts} "
-              f"({before} file(s) already cached) ===")
+        print(
+            f"\n=== auto-resume: attempt {attempt}/{args.max_resume_attempts} "
+            f"({before} file(s) already cached) ==="
+        )
 
         # Inherits this process's stdio so the child's own Logfire/print output
         # streams live, exactly as if it had been run directly.
@@ -150,6 +164,8 @@ def run_auto_resume(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
+    """Run ingestion (or --auto-resume's restart loop) and print a summary report."""
+
     load_dotenv()
     logfire.configure(service_name="rag-ingestion", send_to_logfire="if-token-present")
     args = parse_args()
@@ -169,7 +185,9 @@ def main() -> int:
 
     checkpoint_store = None
     if not args.no_checkpoint:
-        checkpoint_dir = args.checkpoint_dir or PROJECT_ROOT / DEFAULT_CHECKPOINT_DIRNAME
+        checkpoint_dir = (
+            args.checkpoint_dir or PROJECT_ROOT / DEFAULT_CHECKPOINT_DIRNAME
+        )
         checkpoint_store = ChunkCheckpointStore(checkpoint_dir)
 
     report = ingest_folder(
@@ -184,7 +202,9 @@ def main() -> int:
     total_chunk_chars = sum(len(chunk.text) for chunk in report.chunks)
     print(f"Source dir:      {report.source_dir}")
     print(f"Total files:     {report.total_files}")
-    print(f"Parsed files:    {report.parsed_files} ({report.cached_files} from checkpoint)")
+    print(
+        f"Parsed files:    {report.parsed_files} ({report.cached_files} from checkpoint)"
+    )
     print(f"Skipped files:   {report.skipped_count}")
     print(f"Failed files:    {report.failed_count}")
     print(f"Degraded files:  {len(report.warnings)}")

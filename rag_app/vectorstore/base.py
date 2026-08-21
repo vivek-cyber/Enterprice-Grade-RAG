@@ -32,6 +32,8 @@ class VectorMatch:
 
 
 class VectorStore(Protocol):
+    """Contract implemented by every vector store backend."""
+
     store_name: str
 
     def ensure_collection(self, vector_size: int) -> None:

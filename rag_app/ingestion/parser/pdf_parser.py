@@ -11,10 +11,14 @@ from rag_app.ingestion.parser.docling_utils import convert_with_docling
 
 
 class PdfParser(BaseParser):
+    """Parses PDFs via Docling, falling back to pypdf text extraction on failure."""
+
     parser_name = "pdf"
     supported_extensions = {".pdf"}
 
     def parse(self, path: Path) -> ParseResult:
+        """Try Docling first, then the pypdf fallback if Docling fails."""
+
         docling_result = self.parse_with_docling(path)
         if docling_result.succeeded:
             return docling_result
@@ -28,6 +32,8 @@ class PdfParser(BaseParser):
         return fallback_result
 
     def parse_with_docling(self, path: Path) -> ParseResult:
+        """Convert via Docling for layout-aware extraction (tables, reading order)."""
+
         try:
             content, metadata = convert_with_docling(path)
             return ParseResult(
@@ -42,6 +48,8 @@ class PdfParser(BaseParser):
             )
 
     def parse_with_fallback(self, path: Path) -> ParseResult:
+        """Extract per-page text with pypdf, warning on pages with no extractable text."""
+
         try:
             pypdf = import_module("pypdf")
         except ModuleNotFoundError:

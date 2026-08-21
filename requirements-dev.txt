@@ -1,0 +1,6 @@
+# ruff enforces docstring + type-annotation coverage (see ruff.toml) and
+# code formatting on every function/class; pre-commit wires it (and
+# scripts/check_docs.py) into git hooks and CI. Neither is needed to run
+# the app itself, only to develop it.
+ruff
+pre-commit

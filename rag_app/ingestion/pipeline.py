@@ -54,7 +54,9 @@ def ingest_folder(
             supported_extensions,
             include_globs=include_globs,
         )
-        report = IngestionReport(source_dir=source_dir.resolve(), total_files=len(records))
+        report = IngestionReport(
+            source_dir=source_dir.resolve(), total_files=len(records)
+        )
         run_span.set_attribute("total_files", report.total_files)
 
         supported_total = sum(1 for record in records if record.supported)
@@ -115,7 +117,9 @@ def ingest_folder(
                     result = parser.parse(record.path)
                 except Exception as exc:
                     result = None
-                    report.failed_files[record.path] = [f"Unexpected parser failure: {exc}"]
+                    report.failed_files[record.path] = [
+                        f"Unexpected parser failure: {exc}"
+                    ]
                     file_span.set_attribute("failed", True)
                 finally:
                     elapsed_ms = (perf_counter() - started) * 1000
@@ -191,6 +195,7 @@ def ingest_folder(
                 chunk_count=len(chunk_texts),
                 file_count=document_total,
             ):
+
                 def report_embedding_progress(completed: int, total: int) -> None:
                     files_done = bisect_right(document_boundaries, completed)
                     logfire.info(
@@ -225,7 +230,9 @@ def ingest_folder(
                             text=chunk.text,
                             metadata=chunk.metadata,
                         )
-                        for chunk, record in zip(report.chunks, embedding_records, strict=True)
+                        for chunk, record in zip(
+                            report.chunks, embedding_records, strict=True
+                        )
                     ]
                     vector_store.upsert(points)
 
