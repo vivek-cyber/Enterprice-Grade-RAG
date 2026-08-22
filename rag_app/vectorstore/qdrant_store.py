@@ -11,11 +11,21 @@ import logfire
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qdrant_models
 
-from rag_app.vectorstore.base import VectorMatch, VectorPoint
+from rag_app.vectorstore.base import MetadataFilter, VectorMatch, VectorPoint
 
 DEFAULT_DISTANCE = qdrant_models.Distance.COSINE
 DEFAULT_TIMEOUT_SECONDS = 30.0
 DEFAULT_UPSERT_BATCH_SIZE = 256
+
+# Payload fields ensure_collection() indexes for filtered search. Qdrant
+# Cloud rejects an unindexed filter outright (400 "Index required but not
+# found") rather than falling back to a slow scan, so any field callers
+# filter on via MetadataFilter must be listed here.
+DEFAULT_INDEXED_FIELDS: tuple[str, ...] = (
+    "source_type",
+    "source_name",
+    "source_extension",
+)
 
 # Chunk ids are sha256 hex digests, which aren't valid Qdrant point ids
 # (unsigned int or UUID only). This namespace derives a stable UUID per
@@ -37,6 +47,7 @@ class QdrantVectorStore:
     distance: qdrant_models.Distance = DEFAULT_DISTANCE
     timeout: float = DEFAULT_TIMEOUT_SECONDS
     upsert_batch_size: int = DEFAULT_UPSERT_BATCH_SIZE
+    indexed_fields: tuple[str, ...] = DEFAULT_INDEXED_FIELDS
     store_name: str = field(default="qdrant", init=False)
     _client: QdrantClient = field(init=False, repr=False)
 
@@ -54,7 +65,13 @@ class QdrantVectorStore:
         )
 
     def ensure_collection(self, vector_size: int) -> None:
-        """Create the collection with the given vector size if it doesn't exist yet."""
+        """Create the collection with the given vector size if it doesn't exist yet.
+
+        Also creates a keyword payload index on each of indexed_fields. Qdrant
+        Cloud refuses to filter on an unindexed field at all (see
+        _to_qdrant_filter), so a collection created without this step cannot
+        serve a filtered search until indexes are added after the fact.
+        """
 
         if self._client.collection_exists(self.collection_name):
             return
@@ -65,6 +82,12 @@ class QdrantVectorStore:
                 distance=self.distance,
             ),
         )
+        for field_name in self.indexed_fields:
+            self._client.create_payload_index(
+                collection_name=self.collection_name,
+                field_name=field_name,
+                field_schema=qdrant_models.PayloadSchemaType.KEYWORD,
+            )
 
     def upsert(self, points: list[VectorPoint]) -> None:
         """Insert or overwrite points in batches, keyed by a deterministic point id."""
@@ -99,13 +122,22 @@ class QdrantVectorStore:
                     ],
                 )
 
-    def search(self, vector: list[float], *, limit: int = 10) -> list[VectorMatch]:
+    def search(
+        self,
+        vector: list[float],
+        *,
+        limit: int = 10,
+        filters: MetadataFilter | None = None,
+        score_threshold: float | None = None,
+    ) -> list[VectorMatch]:
         """Return the nearest points to vector, most similar first."""
 
         response = self._client.query_points(
             collection_name=self.collection_name,
             query=vector,
             limit=limit,
+            query_filter=_to_qdrant_filter(filters),
+            score_threshold=score_threshold,
         )
         return [
             VectorMatch(
@@ -136,3 +168,36 @@ class QdrantVectorStore:
 
 def _point_id(chunk_id: str) -> str:
     return str(uuid.uuid5(_POINT_ID_NAMESPACE, chunk_id))
+
+
+def _to_qdrant_filter(filters: MetadataFilter | None) -> qdrant_models.Filter | None:
+    """Translate a MetadataFilter into Qdrant's own filter model.
+
+    Returns None for an absent or empty filter so the caller sends no filter
+    at all rather than an empty one, which Qdrant would still evaluate.
+
+    Filtered search does not require a payload index, but Qdrant can only take
+    its fast path when one exists. At this corpus size the difference is
+    negligible; add payload indexes on the fields you filter by before the
+    collection grows.
+    """
+
+    if filters is None or filters.is_empty():
+        return None
+
+    conditions: list[qdrant_models.FieldCondition] = [
+        qdrant_models.FieldCondition(
+            key=key,
+            match=qdrant_models.MatchValue(value=value),
+        )
+        for key, value in filters.equals.items()
+    ]
+    conditions.extend(
+        qdrant_models.FieldCondition(
+            key=key,
+            match=qdrant_models.MatchAny(any=list(values)),
+        )
+        for key, values in filters.any_of.items()
+        if values
+    )
+    return qdrant_models.Filter(must=conditions) if conditions else None

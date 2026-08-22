@@ -31,8 +31,33 @@ class VectorMatch:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(slots=True)
+class MetadataFilter:
+    """A store-agnostic restriction on which points a search may return.
+
+    Deliberately minimal: exact match and match-any cover every payload field
+    ingestion actually writes (source_name, source_path, source_type,
+    source_extension). Richer predicates -- ranges, substring match, negation
+    -- are left out until a caller needs one, since each has to be expressible
+    by every VectorStore implementation, not just Qdrant.
+
+    All conditions combine with AND: a point must satisfy every entry in
+    `equals` and every entry in `any_of` to be returned.
+    """
+
+    # field name -> the single value it must equal
+    equals: dict[str, Any] = field(default_factory=dict)
+    # field name -> values, any one of which it may equal
+    any_of: dict[str, list[Any]] = field(default_factory=dict)
+
+    def is_empty(self) -> bool:
+        """Report whether this filter would restrict anything at all."""
+
+        return not self.equals and not self.any_of
+
+
 class VectorStore(Protocol):
-    """Contract implemented by every vector store backend."""
+    """Something that can index and search embedded chunks."""
 
     store_name: str
 
@@ -42,8 +67,20 @@ class VectorStore(Protocol):
     def upsert(self, points: list[VectorPoint]) -> None:
         """Insert or overwrite points, keyed by chunk_id."""
 
-    def search(self, vector: list[float], *, limit: int = 10) -> list[VectorMatch]:
-        """Return the nearest points to vector, most similar first."""
+    def search(
+        self,
+        vector: list[float],
+        *,
+        limit: int = 10,
+        filters: MetadataFilter | None = None,
+        score_threshold: float | None = None,
+    ) -> list[VectorMatch]:
+        """Return the nearest points to vector, most similar first.
+
+        filters restricts which points are eligible; score_threshold drops
+        matches scoring below it, which is how a caller says "return nothing
+        rather than return junk".
+        """
 
     def delete(self, chunk_ids: list[str]) -> None:
         """Remove points by chunk_id."""

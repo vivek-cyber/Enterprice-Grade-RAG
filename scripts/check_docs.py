@@ -34,6 +34,7 @@ REQUIRED_README_DIRS = [
     PROJECT_ROOT,
     PROJECT_ROOT / "rag_app" / "ingestion",
     PROJECT_ROOT / "rag_app" / "vectorstore",
+    PROJECT_ROOT / "rag_app" / "retrieval",
 ]
 
 # Directories under rag_app/ whose contents are documented by an ancestor's

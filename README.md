@@ -8,20 +8,22 @@ no API keys or per-request costs for embedding.
 
 ## Status
 
-Only the **ingestion** stage is built and tested (see `rag_app/ingestion/`,
-`rag_app/vectorstore/`, `scripts/ingest.py`). Retrieval/query and the
-LangGraph-based agent workflow (see `requirements.txt`) are not implemented
-yet — `langgraph` and `streamlit` are placeholder dependencies for that
-future phase.
+**Ingestion** and **dense retrieval** are built and tested (see
+`rag_app/ingestion/`, `rag_app/vectorstore/`, `rag_app/retrieval/`,
+`scripts/ingest.py`, `scripts/query.py`). Answer generation (an LLM turning
+retrieved chunks into an answer) and the LangGraph-based agent workflow are
+not implemented yet. The generation stage is planned to run on a free Groq
+model during development, with a swap to an Anthropic model as the intended
+production/final backend once the project reaches that stage.
 
 ## How it fits together
 
 ```
-scripts/ingest.py            CLI entrypoint
-        |
-        v
-rag_app/ingestion/pipeline.py   ingest_folder(): orchestrates every step below
-        |
+scripts/ingest.py            CLI entrypoint (index)         scripts/query.py     CLI entrypoint (search)
+        |                                                           |
+        v                                                           v
+rag_app/ingestion/pipeline.py   ingest_folder()          rag_app/retrieval/dense.py   DenseRetriever
+        |                                                           |
         +-- file_discovery.py     walk a folder, hash + classify files
         +-- parser/                one parser class per file type (txt/html/pdf/docx/pptx)
         |     `-- docling_utils.py   shared Docling conversion helper (primary path)
@@ -29,15 +31,17 @@ rag_app/ingestion/pipeline.py   ingest_folder(): orchestrates every step below
         +-- chunking/chunking.py  deterministic, content-hashed chunking
         +-- checkpoint.py         per-file cache so a crash doesn't reparse finished files
         +-- embeddings/            EmbeddingProvider implementations (Nomic, fallback chain)
-        `-- ../vectorstore/         VectorStore implementations (Qdrant)
+        `-- ../vectorstore/         VectorStore implementations (Qdrant) -- shared by both sides
 ```
 
 Each stage is a small, swappable piece behind a `Protocol`/ABC
 (`parser.base.BaseParser`, `embeddings.base.EmbeddingProvider`,
-`vectorstore.base.VectorStore`), so new file types, embedding backends, or
-vector databases can be added without touching the pipeline orchestration in
-`pipeline.py`. See `rag_app/ingestion/README.md` and
-`rag_app/vectorstore/README.md` for details on each layer.
+`vectorstore.base.VectorStore`, `retrieval.base.Retriever`), so new file
+types, embedding backends, vector databases, or retrieval strategies (hybrid
+search, reranking) can be added without touching the pipeline orchestration
+in `pipeline.py` or callers of `retrieve()`. See `rag_app/ingestion/README.md`,
+`rag_app/vectorstore/README.md`, and `rag_app/retrieval/README.md` for
+details on each layer.
 
 ## Setup
 
@@ -88,6 +92,22 @@ in `.ingest_cache/` (see `rag_app/ingestion/checkpoint.py`), keyed by content
 hash and chunk parameters, so re-running a folder only redoes work for files
 that changed or weren't finished last time.
 
+## Querying
+
+```bash
+python scripts/query.py "how does copy-on-write memory work"
+python scripts/query.py "kubernetes autoscaling" --limit 5 --source-type .pdf
+python scripts/query.py "malloc" --min-score 0.5 --json
+```
+
+The query is embedded locally with the same Nomic model as ingestion (tagged
+with the query task prefix, not the document one -- see
+`rag_app/retrieval/README.md`), then searched against Qdrant. Run
+`python scripts/query.py --help` for the full flag list. Requires
+`QDRANT_URL` and, for a new collection, indexed metadata fields -- both are
+handled automatically if the collection was created via
+`QdrantVectorStore.ensure_collection()`.
+
 ## Tests
 
 ```bash
@@ -95,7 +115,7 @@ pytest
 ```
 
 Test layout mirrors `rag_app/`: `tests/ingestion/`, `tests/vectorstore/`,
-`tests/scripts/`.
+`tests/retrieval/`, `tests/scripts/`.
 
 ## Data
 
